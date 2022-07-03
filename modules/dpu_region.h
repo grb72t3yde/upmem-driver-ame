@@ -71,6 +71,7 @@ struct dpu_region {
 
 		uint8_t id;
 		uint8_t channel_id;
+        int nid;
 		uint8_t slot_index;
 
 		uint8_t debug_mode;
