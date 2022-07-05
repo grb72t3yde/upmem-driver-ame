@@ -13,4 +13,6 @@ typedef struct ame_context {
     atomic_t nr_ltb_ranks;
 } ame_context_t;
 
+uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid);
+
 #endif
