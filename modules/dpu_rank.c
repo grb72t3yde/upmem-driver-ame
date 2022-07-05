@@ -23,8 +23,9 @@
 #include <dpu_rank_mcu.h>
 #include <dpu_management.h>
 #include <ufi/ufi.h>
+#include <dpu_ame.h>
 
-extern struct list_head rank_list;
+extern ame_context_t *ame_context_list[MAX_NUMNODES];
 
 struct class *dpu_rank_class;
 
@@ -826,7 +827,7 @@ int dpu_rank_init_device(struct device *dev, struct dpu_region *region,
 	if (ret)
 		goto free_dpus;
 
-	list_add_tail(&rank->list, &rank_list);
+	list_add_tail(&rank->list, &(ame_context_list[rank->nid]->rank_list));
 
 	return 0;
 
@@ -860,18 +861,20 @@ bool dpu_is_dimm_used(struct dpu_rank_t *rank)
 	struct dpu_rank_t *rank_iterator;
 	const char *sn = rank->serial_number;
 	int nr_ranks_used = 0;
+    int node;
 
 	/* We cannot relate the rank to a DIMM */
 	if (!strcmp(sn, "")) {
 		return true;
 	}
 
-	list_for_each_entry (rank_iterator, &rank_list, list) {
-		if ((!strcmp(rank_iterator->serial_number, sn)) &&
-		    (rank_iterator->owner.is_owned)) {
-			nr_ranks_used++;
-		}
-	}
+    for_each_online_node(node)
+        list_for_each_entry (rank_iterator, &(ame_context_list[node]->rank_list), list) {
+            if ((!strcmp(rank_iterator->serial_number, sn)) &&
+                (rank_iterator->owner.is_owned)) {
+                nr_ranks_used++;
+            }
+        }
 
 	return (nr_ranks_used == 0) ? false : true;
 }
