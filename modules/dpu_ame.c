@@ -5,6 +5,17 @@
 
 ame_context_t *ame_context_list[MAX_NUMNODES];
 
+static DEFINE_MUTEX(ame_mutex);
+void ame_lock(int nid)
+{
+    mutex_lock(&(ame_context_list[nid]->mutex));
+}
+
+void ame_unlock(int nid)
+{
+    mutex_unlock(&(ame_context_list[nid]->mutex));
+}
+
 static int init_ame_context(int nid)
 {
     ame_context_list[nid] = kzalloc(sizeof(ame_context_t), GFP_KERNEL);
