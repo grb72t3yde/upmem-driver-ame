@@ -7,6 +7,9 @@
 
 ame_context_t *ame_context_list[MAX_NUMNODES];
 
+extern int (*ame_request_mram_expansion)(int nid);
+extern int (*ame_request_mram_reclamation)(int nid);
+
 static DEFINE_MUTEX(ame_mutex);
 void ame_lock(int nid)
 {
@@ -16,6 +19,12 @@ void ame_lock(int nid)
 void ame_unlock(int nid)
 {
     mutex_unlock(&(ame_context_list[nid]->mutex));
+}
+
+static void init_ame_api(void)
+{
+    ame_request_mram_expansion = request_mram_expansion;
+    ame_request_mram_reclamation = request_mram_reclamation;
 }
 
 static int init_ame_context(int nid)
@@ -176,5 +185,6 @@ int request_mram_reclamation(int nid)
     ame_unlock(nid);
     return 0;
 }
+
 
 

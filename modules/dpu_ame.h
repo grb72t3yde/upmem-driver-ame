@@ -24,4 +24,7 @@ void ame_unlock(int nid);
 uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid);
 uint32_t dpu_ame_rank_free(struct dpu_rank_t **rank, int nid);
 
+int request_mram_expansion(int nid);
+int request_mram_reclamation(int nid);
+
 #endif
