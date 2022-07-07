@@ -81,3 +81,25 @@ uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid)
     /* We can not find a free rank for the AME allocation */
     return DPU_ERR_DRIVER;
 }
+
+uint32_t dpu_ame_rank_free(struct dpu_rank_t **rank, int nid)
+{
+    struct dpu_rank_t *target_rank;
+    pg_data_t *pgdat = NODE_DATA(nid);
+
+    target_rank = *rank;
+
+    dpu_rank_put(target_rank);
+    ame_context_list[nid]->ltb_index = atomic_read(&ame_context_list[nid]->nr_ltb_ranks) == 1 ?
+        NULL : list_entry(target_rank->list.prev, typeof(*target_rank), list);
+
+    list_del(&target_rank->list);
+    list_add_tail(&target_rank->list, &ame_context_list[nid]->rank_list);
+
+    if (atomic_inc_return(&ame_context_list[nid]->nr_free_ranks) == 1)
+        atomic_set(&pgdat->ame_disabled, 0);
+
+    atomic_dec(&pgdat->ame_nr_ranks);
+
+    return DPU_OK;
+}

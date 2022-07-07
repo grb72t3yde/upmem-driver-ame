@@ -18,5 +18,6 @@ void ame_lock(int nid);
 void ame_unlock(int nid);
 
 uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid);
+uint32_t dpu_ame_rank_free(struct dpu_rank_t **rank, int nid);
 
 #endif
