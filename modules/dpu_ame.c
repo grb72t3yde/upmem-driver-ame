@@ -1,4 +1,6 @@
 #include <linux/nodemask.h>
+#include <linux/memory_hotplug.h>
+#include <linux/memory.h>
 
 #include <dpu_ame.h>
 #include <dpu_rank.h>
@@ -49,6 +51,25 @@ out_no_mem:
         if (ame_context_list[node])
             kfree(ame_context_list[node]);
     return -ENOMEM;
+}
+
+static uint32_t expand_one_section(struct dpu_rank_t *rank, int section_id)
+{
+    struct page *page = virt_to_page(rank->region->base);
+    struct memory_block *mem = container_of(&rank->dev, struct memory_block, dev);
+    struct zone *zone = page_zone(page);
+
+    expose_mram_pages(page_to_pfn(page) + section_id * PAGES_PER_SECTION, PAGES_PER_SECTION, zone, mem->group);
+    return 0;
+}
+
+static uint32_t reclaim_one_section(struct dpu_rank_t *rank, int section_id)
+{
+    struct page *page = virt_to_page(rank->region->base);
+    struct memory_block *mem = container_of(&rank->dev, struct memory_block, dev);
+
+    reclaim_mram_pages(page_to_pfn(page) + section_id * PAGES_PER_SECTION, PAGES_PER_SECTION, mem->group, &rank->region->dpu_dax_dev.pgmap);
+    return 0;
 }
 
 uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid)
@@ -103,3 +124,57 @@ uint32_t dpu_ame_rank_free(struct dpu_rank_t **rank, int nid)
 
     return DPU_OK;
 }
+
+int request_mram_expansion(int nid)
+{
+    struct dpu_rank_t *current_ltb_rank;
+
+    ame_lock(nid);
+    current_ltb_rank = ame_context_list[nid]->ltb_index;
+
+    if (current_ltb_rank)
+        if (atomic_read(&current_ltb_rank->nr_ltb_sections) != SECTIONS_PER_DPU_RANK)
+            goto request_one_section;
+
+    /* try to allocate a new rank for AME */
+    if (!atomic_read(&ame_context_list[nid]->nr_free_ranks)) {
+        ame_unlock(nid);
+        return -EBUSY;
+    }
+
+    if (dpu_ame_rank_alloc(&current_ltb_rank, nid) == DPU_OK)
+        goto request_one_section;
+
+    ame_unlock(nid);
+    return -EBUSY;
+
+request_one_section:
+    expand_one_section(current_ltb_rank, atomic_read(&current_ltb_rank->nr_ltb_sections));
+    atomic_inc(&current_ltb_rank->nr_ltb_sections);
+    ame_unlock(nid);
+    return 0;
+}
+
+int request_mram_reclamation(int nid)
+{
+    struct dpu_rank_t *current_ltb_rank;
+
+    ame_lock(nid);
+    current_ltb_rank = ame_context_list[nid]->ltb_index;
+
+    if (!atomic_read(&ame_context_list[nid]->nr_ltb_ranks)) {
+        ame_unlock(nid);
+        return -EBUSY;
+    }
+
+    atomic_dec(&current_ltb_rank->nr_ltb_sections);
+    reclaim_one_section(current_ltb_rank, atomic_read(&current_ltb_rank->nr_ltb_sections));
+
+    if (!atomic_read(&current_ltb_rank->nr_ltb_sections))
+        dpu_ame_rank_free(&current_ltb_rank, nid);
+
+    ame_unlock(nid);
+    return 0;
+}
+
+

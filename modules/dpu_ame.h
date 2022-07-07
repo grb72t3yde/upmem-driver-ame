@@ -3,6 +3,10 @@
 
 #include <linux/list.h>
 #include <dpu_region.h>
+#include <dpu_rank.h>
+
+#define PAGES_PER_DPU_RANK (DPU_RANK_SIZE / PAGE_SIZE)
+#define SECTIONS_PER_DPU_RANK (PAGES_PER_DPU_RANK / PAGES_PER_SECTION)
 
 typedef struct ame_context {
     int nid;
