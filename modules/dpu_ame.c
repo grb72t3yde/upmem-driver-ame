@@ -53,6 +53,17 @@ int ame_init(void)
         if (init_ame_context(node))
             goto out_no_mem;
 
+    for_each_online_node(node)
+        ame_init_node(node);
+
+    for_each_online_node(node)
+        ame_manager_run(node);
+
+    for_each_online_node(node)
+        ame_reclaimer_run(node);
+
+    init_ame_api();
+
     return 0;
 
 out_no_mem:
