@@ -827,7 +827,9 @@ int dpu_rank_init_device(struct device *dev, struct dpu_region *region,
 	if (ret)
 		goto free_dpus;
 
+    atomic_set(&rank->nr_ltb_sections, 0);
 	list_add_tail(&rank->list, &(ame_context_list[rank->nid]->rank_list));
+    atomic_inc(&ame_context_list[rank->nid]->nr_free_ranks);
 
 	return 0;
 
