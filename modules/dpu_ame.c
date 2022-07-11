@@ -27,7 +27,7 @@ static void init_ame_api(void)
     ame_request_mram_reclamation = request_mram_reclamation;
 }
 
-static int init_ame_context(int nid)
+int init_ame_context(int nid)
 {
     ame_context_list[nid] = kzalloc(sizeof(ame_context_t), GFP_KERNEL);
 
@@ -48,10 +48,6 @@ static int init_ame_context(int nid)
 int ame_init(void)
 {
     int node;
-
-    for_each_online_node(node)
-        if (init_ame_context(node))
-            goto out_no_mem;
 
     for_each_online_node(node)
         ame_init_node(node);

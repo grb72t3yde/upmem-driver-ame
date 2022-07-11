@@ -30,6 +30,7 @@
 #include <dpu_config.h>
 #include <dpu_pci_ids.h>
 #include <dpu_utils.h>
+#include <dpu_ame.h>
 
 static unsigned int default_backend = 0;
 
@@ -530,6 +531,7 @@ static struct pci_driver dpu_region_fpga_aws_driver = {
 static int __init dpu_region_init(void)
 {
 	int ret;
+    int node;
 
 	dpu_rank_class = class_create(THIS_MODULE, DPU_RANK_NAME);
 	if (IS_ERR(dpu_rank_class)) {
@@ -548,6 +550,10 @@ static int __init dpu_region_init(void)
 
 	pr_debug("dpu: get rank information from DMI\n");
 	dpu_rank_dmi_init();
+
+    /* Init AME context for each node */
+    for_each_online_node(node)
+        init_ame_context(node);
 
 	pr_debug("dpu: initializing memory driver\n");
 	ret = platform_driver_register(&dpu_region_mem_driver);
@@ -571,6 +577,7 @@ static int __init dpu_region_init(void)
 	if (ret)
 		goto aws_error;
 
+    ame_init();
 	return 0;
 
 aws_error:
