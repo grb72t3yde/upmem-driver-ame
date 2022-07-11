@@ -72,7 +72,7 @@ out_no_mem:
 static uint32_t expand_one_section(struct dpu_rank_t *rank, int section_id)
 {
     struct page *page = virt_to_page(rank->region->base);
-    struct memory_block *mem = container_of(&rank->dev, struct memory_block, dev);
+    struct memory_block *mem = container_of(rank->dev.parent, struct memory_block, dev);
     struct zone *zone = page_zone(page);
 
     expose_mram_pages(page_to_pfn(page) + section_id * PAGES_PER_SECTION, PAGES_PER_SECTION, zone, mem->group);
@@ -82,7 +82,7 @@ static uint32_t expand_one_section(struct dpu_rank_t *rank, int section_id)
 static uint32_t reclaim_one_section(struct dpu_rank_t *rank, int section_id)
 {
     struct page *page = virt_to_page(rank->region->base);
-    struct memory_block *mem = container_of(&rank->dev, struct memory_block, dev);
+    struct memory_block *mem = container_of(rank->dev.parent, struct memory_block, dev);
 
     reclaim_mram_pages(page_to_pfn(page) + section_id * PAGES_PER_SECTION, PAGES_PER_SECTION, mem->group, &rank->region->dpu_dax_dev.pgmap);
     return 0;
