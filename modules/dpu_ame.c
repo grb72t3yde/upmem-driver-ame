@@ -57,6 +57,15 @@ out:
     return ret;
 }
 
+void dpu_ame_release_device(int nid)
+{
+    ame_context_t *ame_context = ame_context_list[nid];
+
+    cdev_device_del(&ame_context->cdev, &ame_context->dev);
+    put_device(&ame_context->dev);
+    unregister_chrdev_region(ame_context->dev.devt, 1);
+}
+
 static void init_ame_api(void)
 {
     ame_request_mram_expansion = request_mram_expansion;
