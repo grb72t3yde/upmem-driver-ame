@@ -7,6 +7,12 @@
 
 ame_context_t *ame_context_list[MAX_NUMNODES];
 
+static struct file_operations dpu_ame_fops = {
+    .owner = THIS_MODULE,
+};
+
+struct class *dpu_ame_class;
+
 extern int (*ame_request_mram_expansion)(int nid);
 extern int (*ame_request_mram_reclamation)(int nid);
 
@@ -19,6 +25,36 @@ void ame_lock(int nid)
 void ame_unlock(int nid)
 {
     mutex_unlock(&(ame_context_list[nid]->mutex));
+}
+
+
+static int dpu_rank_create_device(struct device *dev_parent, int nid)
+{
+    ame_context_t *ame_context = ame_context_list[nid];
+    int ret;
+
+    ret = alloc_chrdev_region(&ame_context->dev.devt, 0, 1, "dpu_ame");
+
+    cdev_init(&ame_context->cdev, &dpu_ame_fops);
+    ame_context->cdev.owner = THIS_MODULE;
+
+    device_initialize(&ame_context->dev);
+
+    ame_context->dev.class = dpu_ame_class;
+    ame_context->dev.parent = dev_parent;
+
+    dev_set_drvdata(&ame_context->dev, ame_context);
+    dev_set_name(&ame_context->dev, DPU_AME_PATH, nid);
+
+    ret = cdev_device_add(&ame_context->cdev, &ame_context->dev);
+	if (ret)
+		goto out;
+
+    return 0;
+out:
+    put_device(&ame_context->dev);
+    unregister_chrdev_region(ame_context->dev.devt, 1);
+    return ret;
 }
 
 static void init_ame_api(void)

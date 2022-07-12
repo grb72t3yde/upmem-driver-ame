@@ -8,6 +8,9 @@
 #define PAGES_PER_DPU_RANK (DPU_RANK_SIZE / PAGE_SIZE)
 #define SECTIONS_PER_DPU_RANK (PAGES_PER_DPU_RANK / PAGES_PER_SECTION)
 
+#define DPU_AME_NAME "dpu_ame"
+#define DPU_AME_PATH DPU_AME_NAME "%d"
+
 typedef struct ame_context {
     int nid;
     struct mutex mutex;
@@ -16,6 +19,8 @@ typedef struct ame_context {
     struct dpu_rank_t *ltb_index;
     atomic_t nr_free_ranks;
     atomic_t nr_ltb_ranks;
+    struct cdev cdev;
+    struct device dev;
 } ame_context_t;
 
 void ame_lock(int nid);
