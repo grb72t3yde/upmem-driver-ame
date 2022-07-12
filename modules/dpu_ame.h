@@ -21,6 +21,7 @@ typedef struct ame_context {
     atomic_t nr_ltb_ranks;
     struct cdev cdev;
     struct device dev;
+    bool is_opened;
 } ame_context_t;
 
 void ame_lock(int nid);

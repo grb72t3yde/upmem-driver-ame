@@ -7,8 +7,38 @@
 
 ame_context_t *ame_context_list[MAX_NUMNODES];
 
+static int dpu_ame_open(struct inode *inode, struct file *filp)
+{
+    ame_context_t *ame_context =
+        container_of(inode->i_cdev, ame_context_t, cdev);
+
+    ame_lock(ame_context->nid);
+
+    filp->private_data = ame_context;
+
+    if (ame_context->is_opened) {
+        ame_unlock(ame_context->nid);
+        return -EINVAL;
+    }
+
+    ame_unlock(ame_context->nid);
+    return 0;
+}
+
+static int dpu_ame_release(struct inode *inode, struct file *filp)
+{
+    ame_context_t *ame_context = filp->private_data;
+
+    if (!ame_context)
+        return 0;
+
+    return 0;
+}
+
 static struct file_operations dpu_ame_fops = {
     .owner = THIS_MODULE,
+    .open = dpu_ame_open,
+    .release = dpu_ame_release,
 };
 
 struct class *dpu_ame_class;
