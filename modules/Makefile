@@ -51,6 +51,7 @@ format-source += modules/uapi/dpu_runner.h
 format-source += modules/uapi/dpu_management.h
 format-source += modules/uapi/dpu_memory.h
 format-source += modules/dpu_ame.h
+format-source += modules/dpu_ame_ioctl.h
 
 # Mappings
 dpu-objs 	+= ../mappings/fpga_kc705/dpu_fpga_kc705_translation.o

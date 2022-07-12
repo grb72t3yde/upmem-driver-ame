@@ -24,6 +24,11 @@ typedef struct ame_context {
     bool is_opened;
 } ame_context_t;
 
+struct dpu_ame_allocation_context {
+    int nr_req_ranks;
+    int ret;
+};
+
 void ame_lock(int nid);
 void ame_unlock(int nid);
 

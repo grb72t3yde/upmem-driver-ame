@@ -3,6 +3,7 @@
 #include <linux/memory.h>
 
 #include <dpu_ame.h>
+#include <dpu_ame_ioctl.h>
 #include <dpu_rank.h>
 
 ame_context_t *ame_context_list[MAX_NUMNODES];
@@ -31,6 +32,24 @@ static int dpu_ame_release(struct inode *inode, struct file *filp)
 
     if (!ame_context)
         return 0;
+
+    return 0;
+}
+
+static long dpu_rank_ioctl(struct file *filp, unsigned int cmd,
+        unsigned long arg)
+{
+    ame_context_t *ame_context = filp->private_data;
+
+    if (!ame_context)
+        return 0;
+
+    switch (cmd) {
+    case DPU_AME_IOCTL_CHECK_NEED_RECLAMATION:
+        break;
+    default:
+        break;
+    }
 
     return 0;
 }
