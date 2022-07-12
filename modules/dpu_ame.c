@@ -7,31 +7,38 @@
 #include <dpu_rank.h>
 
 ame_context_t *ame_context_list[MAX_NUMNODES];
+struct dpu_ame_fs ame_fs;
 
 static int dpu_ame_open(struct inode *inode, struct file *filp)
 {
-    ame_context_t *ame_context =
-        container_of(inode->i_cdev, ame_context_t, cdev);
+    struct dpu_ame_fs *fs =
+        container_of(inode->i_cdev, struct dpu_ame_fs, cdev);
 
-    ame_lock(ame_context->nid);
+    filp->private_data = fs;
 
-    filp->private_data = ame_context;
+    ame_fs_lock();
 
-    if (ame_context->is_opened) {
-        ame_unlock(ame_context->nid);
+    if (fs->is_opened) {
+        ame_fs_unlock();
         return -EINVAL;
     }
 
-    ame_unlock(ame_context->nid);
+    fs->is_opened = true;
+    ame_fs_unlock();
+
     return 0;
 }
 
 static int dpu_ame_release(struct inode *inode, struct file *filp)
 {
-    ame_context_t *ame_context = filp->private_data;
+    struct dpu_ame_fs *fs = filp->private_data;
 
-    if (!ame_context)
+    if (!fs)
         return 0;
+
+    ame_fs_lock();
+    fs->is_opened = false;
+    ame_fs_unlock();
 
     return 0;
 }
@@ -39,9 +46,9 @@ static int dpu_ame_release(struct inode *inode, struct file *filp)
 static long dpu_rank_ioctl(struct file *filp, unsigned int cmd,
         unsigned long arg)
 {
-    ame_context_t *ame_context = filp->private_data;
+    struct dpu_ame_fs *fs = filp->private_data;
 
-    if (!ame_context)
+    if (!fs)
         return 0;
 
     switch (cmd) {
@@ -76,43 +83,52 @@ void ame_unlock(int nid)
     mutex_unlock(&(ame_context_list[nid]->mutex));
 }
 
-
-static int dpu_rank_create_device(struct device *dev_parent, int nid)
+void ame_fs_lock(void)
 {
-    ame_context_t *ame_context = ame_context_list[nid];
+    mutex_lock(&ame_fs.mutex);
+}
+
+void ame_fs_unlock(void)
+{
+    mutex_unlock(&ame_fs.mutex);
+}
+
+static int dpu_ame_create_device(struct device *dev_parent)
+{
     int ret;
 
-    ret = alloc_chrdev_region(&ame_context->dev.devt, 0, 1, "dpu_ame");
+    ret = alloc_chrdev_region(&ame_fs.dev.devt, 0, 1, DPU_AME_NAME);
 
-    cdev_init(&ame_context->cdev, &dpu_ame_fops);
-    ame_context->cdev.owner = THIS_MODULE;
+    cdev_init(&ame_fs.cdev, &dpu_ame_fops);
+    ame_fs.cdev.owner = THIS_MODULE;
 
-    device_initialize(&ame_context->dev);
+    device_initialize(&ame_fs.dev);
 
-    ame_context->dev.class = dpu_ame_class;
-    ame_context->dev.parent = dev_parent;
+    ame_fs.dev.class = dpu_ame_class;
+    ame_fs.dev.parent = dev_parent;
 
-    dev_set_drvdata(&ame_context->dev, ame_context);
-    dev_set_name(&ame_context->dev, DPU_AME_PATH, nid);
+    dev_set_drvdata(&ame_fs.dev, &ame_fs);
+    dev_set_name(&ame_fs.dev, DPU_AME_NAME);
 
-    ret = cdev_device_add(&ame_context->cdev, &ame_context->dev);
+    ret = cdev_device_add(&ame_fs.cdev, &ame_fs.dev);
 	if (ret)
 		goto out;
 
+    mutex_init(&ame_fs.mutex);
+    ame_fs.is_opened = false;
+
     return 0;
 out:
-    put_device(&ame_context->dev);
-    unregister_chrdev_region(ame_context->dev.devt, 1);
+    put_device(&ame_fs.dev);
+    unregister_chrdev_region(ame_fs.dev.devt, 1);
     return ret;
 }
 
-void dpu_ame_release_device(int nid)
+void dpu_ame_release_device(void)
 {
-    ame_context_t *ame_context = ame_context_list[nid];
-
-    cdev_device_del(&ame_context->cdev, &ame_context->dev);
-    put_device(&ame_context->dev);
-    unregister_chrdev_region(ame_context->dev.devt, 1);
+    cdev_device_del(&ame_fs.cdev, &ame_fs.dev);
+    put_device(&ame_fs.dev);
+    unregister_chrdev_region(ame_fs.dev.devt, 1);
 }
 
 static void init_ame_api(void)
