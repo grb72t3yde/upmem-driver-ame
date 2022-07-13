@@ -43,28 +43,58 @@ static int dpu_ame_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
-static long dpu_rank_ioctl(struct file *filp, unsigned int cmd,
+static int dpu_ame_check_need_reclamation(unsigned long ptr)
+{
+    struct dpu_ame_allocation_context allocation_context;
+    int node;
+    int nr_free_ranks = 0;
+    int nr_ltb_ranks = 0;
+
+    if (copy_from_user(&allocation_context, (void *)ptr, sizeof(allocation_context)))
+        return -EFAULT;
+
+    for_each_online_node(node)
+        nr_free_ranks += atomic_read(&ame_context_list[node]->nr_free_ranks);
+
+    if (allocation_context.nr_req_ranks <= nr_free_ranks)
+        return 0;
+
+    for_each_online_node(node)
+        nr_ltb_ranks += atomic_read(&ame_context_list[node]->nr_ltb_ranks);
+
+    if (allocation_context.nr_req_ranks <= nr_free_ranks + nr_ltb_ranks) {
+        /* we can get enough ranks after relcaiming (nr_req_ranks - nr_free_ranks) ranks */
+    } else
+        return -EBUSY;
+
+    return 0;
+}
+
+static long dpu_ame_ioctl(struct file *filp, unsigned int cmd,
         unsigned long arg)
 {
     struct dpu_ame_fs *fs = filp->private_data;
+    int ret = 0;
 
     if (!fs)
         return 0;
 
     switch (cmd) {
     case DPU_AME_IOCTL_CHECK_NEED_RECLAMATION:
+        ret = dpu_ame_check_need_reclamation(arg);
         break;
     default:
         break;
     }
 
-    return 0;
+    return ret;
 }
 
 static struct file_operations dpu_ame_fops = {
     .owner = THIS_MODULE,
     .open = dpu_ame_open,
     .release = dpu_ame_release,
+    .unlocked_ioctl = dpu_ame_ioctl,
 };
 
 struct class *dpu_ame_class;
@@ -214,7 +244,6 @@ uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid)
             list_add_tail(&rank_iterator->list, &ame_context_list[nid]->ltb_rank_list);
 
             /* Update counters */
-            atomic_dec(&ame_context_list[nid]->nr_free_ranks);
             if (atomic_inc_return(&ame_context_list[nid]->nr_ltb_ranks) == 1)
                 wakeup_ame_reclaimer(nid);
             atomic_inc(&pgdat->ame_nr_ranks);
@@ -237,14 +266,14 @@ uint32_t dpu_ame_rank_free(struct dpu_rank_t **rank, int nid)
     target_rank = *rank;
 
     dpu_rank_put(target_rank);
-    ame_context_list[nid]->ltb_index = atomic_read(&ame_context_list[nid]->nr_ltb_ranks) == 1 ?
+    ame_context_list[nid]->ltb_index = list_empty(&ame_context_list[nid]->ltb_rank_list) ?
         NULL : list_entry(target_rank->list.prev, typeof(*target_rank), list);
 
     list_del(&target_rank->list);
     list_add_tail(&target_rank->list, &ame_context_list[nid]->rank_list);
 
-    if (atomic_inc_return(&ame_context_list[nid]->nr_free_ranks) == 1)
-        atomic_set(&pgdat->ame_disabled, 0);
+    if (atomic_dec_return(&ame_context_list[nid]->nr_ltb_ranks) == 0)
+        ame_context_list[nid]->ltb_index = NULL;
 
     atomic_dec(&pgdat->ame_nr_ranks);
 

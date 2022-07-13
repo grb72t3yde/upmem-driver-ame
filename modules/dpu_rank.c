@@ -445,6 +445,7 @@ uint32_t dpu_rank_get(struct dpu_rank_t *rank)
 			// TODO Quid of host_mux_mram_state ?
 		}
 	}
+    atomic_dec(&ame_context_list[rank->nid]->nr_free_ranks);
 	rank->owner.usage_count++;
 
 	dpu_region_unlock(rank->region);
@@ -456,6 +457,7 @@ void dpu_rank_put(struct dpu_rank_t *rank)
 {
 	struct dpu_region_address_translation *tr =
 		&rank->region->addr_translate;
+    pg_data_t *pgdat = NODE_DATA(rank->nid);
 
 	dpu_region_lock(rank->region);
 
@@ -474,6 +476,10 @@ void dpu_rank_put(struct dpu_rank_t *rank)
 		rank->debug_mode = 0;
 		rank->region->mode = DPU_REGION_MODE_UNDEFINED;
 	}
+
+    if (atomic_inc_return(&ame_context_list[rank->nid]->nr_free_ranks) == 1) {
+        atomic_set(&pgdat->ame_disabled, 0);
+    }
 
 	dpu_region_unlock(rank->region);
 }

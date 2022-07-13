@@ -29,7 +29,6 @@ struct dpu_ame_fs {
 
 struct dpu_ame_allocation_context {
     int nr_req_ranks;
-    int ret;
 };
 
 void ame_lock(int nid);
