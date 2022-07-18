@@ -35,6 +35,7 @@
 static unsigned int default_backend = 0;
 
 DEFINE_IDA(dpu_region_ida);
+extern struct class *dpu_ame_class;
 
 void dpu_region_lock(struct dpu_region *region)
 {
@@ -548,6 +549,15 @@ static int __init dpu_region_init(void)
 	}
 	dpu_dax_class->dev_groups = dpu_dax_region_attrs_groups;
 
+    dpu_ame_class = class_create(THIS_MODULE, DPU_AME_NAME);
+    if (IS_ERR(dpu_ame_class)) {
+		class_destroy(dpu_rank_class);
+		class_destroy(dpu_dax_class);
+		ret = PTR_ERR(dpu_ame_class);
+		return ret;
+	}
+    dpu_ame_class->dev_uevent = dpu_ame_dev_uevent;
+
 	pr_debug("dpu: get rank information from DMI\n");
 	dpu_rank_dmi_init();
 
@@ -577,7 +587,10 @@ static int __init dpu_region_init(void)
 	if (ret)
 		goto aws_error;
 
+    /* Activate AME service */
+    dpu_ame_create_device();
     ame_init();
+
 	return 0;
 
 aws_error:
@@ -589,6 +602,7 @@ mem_error:
 	dpu_rank_dmi_exit();
 	class_destroy(dpu_dax_class);
 	class_destroy(dpu_rank_class);
+	class_destroy(dpu_ame_class);
 	return ret;
 }
 
@@ -603,6 +617,8 @@ static void __exit dpu_region_exit(void)
 	dpu_rank_dmi_exit();
 	class_destroy(dpu_dax_class);
 	class_destroy(dpu_rank_class);
+    dpu_ame_release_device();
+	class_destroy(dpu_ame_class);
 	ida_destroy(&dpu_region_ida);
 }
 

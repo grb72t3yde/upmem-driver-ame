@@ -9,6 +9,14 @@
 ame_context_t *ame_context_list[MAX_NUMNODES];
 struct dpu_ame_fs ame_fs;
 
+int dpu_ame_dev_uevent(struct device *dev, struct kobj_uevent_env *env)
+{
+    add_uevent_var(env, "DEVMODE=%#o", 0666);
+    return 0;
+}
+
+struct class *dpu_ame_class;
+
 static int dpu_ame_open(struct inode *inode, struct file *filp)
 {
     struct dpu_ame_fs *fs =
@@ -17,7 +25,6 @@ static int dpu_ame_open(struct inode *inode, struct file *filp)
     filp->private_data = fs;
 
     ame_fs_lock();
-
     if (fs->is_opened) {
         ame_fs_unlock();
         return -EINVAL;
@@ -97,8 +104,6 @@ static struct file_operations dpu_ame_fops = {
     .unlocked_ioctl = dpu_ame_ioctl,
 };
 
-struct class *dpu_ame_class;
-
 extern int (*ame_request_mram_expansion)(int nid);
 extern int (*ame_request_mram_reclamation)(int nid);
 
@@ -123,11 +128,13 @@ void ame_fs_unlock(void)
     mutex_unlock(&ame_fs.mutex);
 }
 
-static int dpu_ame_create_device(struct device *dev_parent)
+int dpu_ame_create_device(void)
 {
     int ret;
 
     ret = alloc_chrdev_region(&ame_fs.dev.devt, 0, 1, DPU_AME_NAME);
+    if (ret)
+        return ret;
 
     cdev_init(&ame_fs.cdev, &dpu_ame_fops);
     ame_fs.cdev.owner = THIS_MODULE;
@@ -135,7 +142,6 @@ static int dpu_ame_create_device(struct device *dev_parent)
     device_initialize(&ame_fs.dev);
 
     ame_fs.dev.class = dpu_ame_class;
-    ame_fs.dev.parent = dev_parent;
 
     dev_set_drvdata(&ame_fs.dev, &ame_fs);
     dev_set_name(&ame_fs.dev, DPU_AME_NAME);
@@ -148,6 +154,8 @@ static int dpu_ame_create_device(struct device *dev_parent)
     ame_fs.is_opened = false;
 
     return 0;
+free_cdev_dev:
+    cdev_device_del(&ame_fs.cdev, &ame_fs.dev);
 out:
     put_device(&ame_fs.dev);
     unregister_chrdev_region(ame_fs.dev.devt, 1);
@@ -331,6 +339,4 @@ int request_mram_reclamation(int nid)
     ame_unlock(nid);
     return 0;
 }
-
-
 
