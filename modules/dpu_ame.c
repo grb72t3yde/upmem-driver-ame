@@ -154,8 +154,6 @@ int dpu_ame_create_device(void)
     ame_fs.is_opened = false;
 
     return 0;
-free_cdev_dev:
-    cdev_device_del(&ame_fs.cdev, &ame_fs.dev);
 out:
     put_device(&ame_fs.dev);
     unregister_chrdev_region(ame_fs.dev.devt, 1);
