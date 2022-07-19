@@ -6,6 +6,7 @@
 #include <dpu_ame_ioctl.h>
 #include <dpu_rank.h>
 
+bool ame_initialized = false;
 ame_context_t *ame_context_list[MAX_NUMNODES];
 struct dpu_ame_fs ame_fs;
 
@@ -195,6 +196,12 @@ int init_ame_context(int nid)
     return 0;
 }
 
+void destroy_ame_context(int nid)
+{
+    if (ame_context_list[nid])
+        kfree(ame_context_list[nid]);
+}
+
 int ame_init(void)
 {
     int node;
@@ -211,12 +218,6 @@ int ame_init(void)
     init_ame_api();
 
     return 0;
-
-out_no_mem:
-    for_each_online_node(node)
-        if (ame_context_list[node])
-            kfree(ame_context_list[node]);
-    return -ENOMEM;
 }
 
 static uint32_t expand_one_section(struct dpu_rank_t *rank, int section_id)

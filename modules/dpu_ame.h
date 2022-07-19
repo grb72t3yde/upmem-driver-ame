@@ -44,10 +44,11 @@ int request_mram_expansion(int nid);
 int request_mram_reclamation(int nid);
 
 int init_ame_context(int nid);
+void destroy_ame_context(int nid);
 int ame_init(void);
+
 int dpu_ame_create_device(void);
 void dpu_ame_release_device(void);
-
 int dpu_ame_dev_uevent(struct device *dev, struct kobj_uevent_env *env);
 
 #endif

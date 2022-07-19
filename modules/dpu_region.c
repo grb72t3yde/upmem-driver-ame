@@ -36,6 +36,7 @@ static unsigned int default_backend = 0;
 
 DEFINE_IDA(dpu_region_ida);
 extern struct class *dpu_ame_class;
+extern bool ame_initialized;
 
 void dpu_region_lock(struct dpu_region *region)
 {
@@ -549,21 +550,27 @@ static int __init dpu_region_init(void)
 	}
 	dpu_dax_class->dev_groups = dpu_dax_region_attrs_groups;
 
+    ame_initialized = true;
     dpu_ame_class = class_create(THIS_MODULE, DPU_AME_NAME);
-    if (IS_ERR(dpu_ame_class)) {
-		class_destroy(dpu_rank_class);
-		class_destroy(dpu_dax_class);
-		ret = PTR_ERR(dpu_ame_class);
-		return ret;
-	}
-    dpu_ame_class->dev_uevent = dpu_ame_dev_uevent;
+    if (IS_ERR(dpu_ame_class))
+        ame_initialized = false;
+    if (ame_initialized)
+        dpu_ame_class->dev_uevent = dpu_ame_dev_uevent;
 
 	pr_debug("dpu: get rank information from DMI\n");
 	dpu_rank_dmi_init();
 
     /* Init AME context for each node */
-    for_each_online_node(node)
-        init_ame_context(node);
+    if (ame_initialized)
+        for_each_online_node(node) {
+            if (init_ame_context(node) == -ENOMEM) {
+                for_each_online_node(node)
+                    destroy_ame_context(node);
+                ame_initialized = false;
+                pr_debug("ame: AME initialization failed\n");
+                break;
+            }
+        }
 
 	pr_debug("dpu: initializing memory driver\n");
 	ret = platform_driver_register(&dpu_region_mem_driver);
@@ -588,8 +595,13 @@ static int __init dpu_region_init(void)
 		goto aws_error;
 
     /* Activate AME service */
-    dpu_ame_create_device();
-    ame_init();
+    if (ame_initialized)
+        if (dpu_ame_create_device())
+            ame_initialized = false;
+
+    if (ame_initialized) {
+        ame_init();
+    }
 
 	return 0;
 
