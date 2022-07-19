@@ -107,7 +107,6 @@ static struct file_operations dpu_ame_fops = {
 extern int (*ame_request_mram_expansion)(int nid);
 extern int (*ame_request_mram_reclamation)(int nid);
 
-static DEFINE_MUTEX(ame_mutex);
 void ame_lock(int nid)
 {
     mutex_lock(&(ame_context_list[nid]->mutex));
@@ -181,7 +180,9 @@ int init_ame_context(int nid)
 
     if (!ame_context_list[nid])
         return -ENOMEM;
+    mutex_init(&ame_context_list[nid]->mutex);
 
+    ame_lock(nid);
     INIT_LIST_HEAD(&ame_context_list[nid]->rank_list);
     INIT_LIST_HEAD(&ame_context_list[nid]->ltb_rank_list);
 
@@ -189,6 +190,7 @@ int init_ame_context(int nid)
     ame_context_list[nid]->nid = nid;
     atomic_set(&ame_context_list[nid]->nr_free_ranks, 0);
     atomic_set(&ame_context_list[nid]->nr_ltb_ranks, 0);
+    ame_unlock(nid);
 
     return 0;
 }
