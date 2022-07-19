@@ -835,6 +835,7 @@ int dpu_rank_init_device(struct device *dev, struct dpu_region *region,
 
     atomic_set(&rank->nr_ltb_sections, 0);
 	list_add_tail(&rank->list, &(ame_context_list[rank->nid]->rank_list));
+    rank->is_pinned = false;
     atomic_inc(&ame_context_list[rank->nid]->nr_free_ranks);
 
 	return 0;

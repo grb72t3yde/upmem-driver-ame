@@ -244,6 +244,8 @@ uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid)
     *rank = NULL;
 
     list_for_each_entry (rank_iterator, &ame_context_list[nid]->rank_list, list) {
+        if (rank_iterator->is_pinned)
+            continue;
         if (dpu_rank_get(rank_iterator) == DPU_OK) {
             *rank = rank_iterator;
 
