@@ -51,30 +51,93 @@ static int dpu_ame_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
+static int reclaim_one_rank(struct dpu_rank_t *rank)
+{
+    struct page *page = virt_to_page(rank->region->base);
+    struct memory_block *mem = container_of(rank->dev.parent, struct memory_block, dev);
+    unsigned long pfn;
+
+    for (pfn = page_to_pfn(page); pfn < page_to_pfn(page) + PAGES_PER_SECTION * atomic_read(&rank->nr_ltb_sections); pfn += PAGES_PER_SECTION) {
+        reclaim_mram_pages(pfn, PAGES_PER_SECTION, mem->group, &rank->region->dpu_dax_dev.pgmap);
+    }
+
+    dpu_ame_rank_free(&rank, rank->nid);
+
+    return 0;
+}
+
+static int reserve_ranks_for_allocation(int nr_req_ranks, int nr_reclamation_ranks)
+{
+    int node;
+    struct dpu_rank_t *rank_iterator;
+
+    /* reclaim nr_reclamation_ranks ranks */
+    if (nr_reclamation_ranks > 0)
+        for_each_online_node(node)
+            list_for_each_entry (rank_iterator, &ame_context_list[node]->ltb_rank_list, list) {
+                reclaim_one_rank(rank_iterator);
+
+                if (--nr_reclamation_ranks == 0)
+                    goto do_reservation;
+            }
+
+do_reservation:
+    /* reserve nr_req_ranks ranks */
+    for_each_online_node(node)
+        list_for_each_entry (rank_iterator, &ame_context_list[node]->rank_list, list) {
+            if (rank_iterator->is_reserved) {
+                /* the rank is reserved for allocation */
+                rank_iterator->is_reserved = true;
+                atomic_dec(&ame_context_list[rank_iterator->nid]->nr_free_ranks);
+                if (--nr_req_ranks == 0)
+                    goto end;
+            }
+        }
+end:
+    return 0;
+}
+
 static int dpu_ame_check_need_reclamation(unsigned long ptr)
 {
     struct dpu_ame_allocation_context allocation_context;
     int node;
     int nr_free_ranks = 0;
     int nr_ltb_ranks = 0;
+    int nr_reclamation_ranks = 0;
 
     if (copy_from_user(&allocation_context, (void *)ptr, sizeof(allocation_context)))
         return -EFAULT;
 
+    /* we must lock ame on each node */
+    for_each_online_node(node)
+        ame_lock(node);
+
     for_each_online_node(node)
         nr_free_ranks += atomic_read(&ame_context_list[node]->nr_free_ranks);
 
-    if (allocation_context.nr_req_ranks <= nr_free_ranks)
-        return 0;
+    if (allocation_context.nr_req_ranks <= nr_free_ranks) {
+        nr_reclamation_ranks = 0;
+        goto reserve_ranks;
+    }
 
     for_each_online_node(node)
         nr_ltb_ranks += atomic_read(&ame_context_list[node]->nr_ltb_ranks);
 
     if (allocation_context.nr_req_ranks <= nr_free_ranks + nr_ltb_ranks) {
         /* we can get enough ranks after relcaiming (nr_req_ranks - nr_free_ranks) ranks */
-    } else
+        nr_reclamation_ranks = allocation_context.nr_req_ranks - nr_free_ranks;
+        goto reserve_ranks;
+    } else {
+        for_each_online_node(node)
+            ame_unlock(node);
         return -EBUSY;
+    }
 
+reserve_ranks:
+    reserve_ranks_for_allocation(allocation_context.nr_req_ranks, nr_reclamation_ranks);
+
+    for_each_online_node(node)
+        ame_unlock(node);
     return 0;
 }
 
@@ -245,7 +308,7 @@ uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid)
     *rank = NULL;
 
     list_for_each_entry (rank_iterator, &ame_context_list[nid]->rank_list, list) {
-        if (rank_iterator->is_pinned)
+        if (rank_iterator->is_reserved)
             continue;
         if (dpu_rank_get(rank_iterator) == DPU_OK) {
             *rank = rank_iterator;
@@ -255,6 +318,7 @@ uint32_t dpu_ame_rank_alloc(struct dpu_rank_t **rank, int nid)
             list_add_tail(&rank_iterator->list, &ame_context_list[nid]->ltb_rank_list);
 
             /* Update counters */
+            atomic_dec(&ame_context_list[nid]->nr_free_ranks);
             if (atomic_inc_return(&ame_context_list[nid]->nr_ltb_ranks) == 1)
                 wakeup_ame_reclaimer(nid);
             atomic_inc(&pgdat->ame_nr_ranks);
@@ -277,14 +341,14 @@ uint32_t dpu_ame_rank_free(struct dpu_rank_t **rank, int nid)
     target_rank = *rank;
 
     dpu_rank_put(target_rank);
-    ame_context_list[nid]->ltb_index = list_empty(&ame_context_list[nid]->ltb_rank_list) ?
-        NULL : list_entry(target_rank->list.prev, typeof(*target_rank), list);
-
-    list_del(&target_rank->list);
-    list_add_tail(&target_rank->list, &ame_context_list[nid]->rank_list);
 
     if (atomic_dec_return(&ame_context_list[nid]->nr_ltb_ranks) == 0)
         ame_context_list[nid]->ltb_index = NULL;
+    else
+        ame_context_list[nid]->ltb_index = list_entry(target_rank->list.prev, typeof(*target_rank), list);
+
+    list_del(&target_rank->list);
+    list_add_tail(&target_rank->list, &ame_context_list[nid]->rank_list);
 
     atomic_dec(&pgdat->ame_nr_ranks);
 

@@ -445,7 +445,6 @@ uint32_t dpu_rank_get(struct dpu_rank_t *rank)
 			// TODO Quid of host_mux_mram_state ?
 		}
 	}
-    atomic_dec(&ame_context_list[rank->nid]->nr_free_ranks);
 	rank->owner.usage_count++;
 
 	dpu_region_unlock(rank->region);
@@ -835,7 +834,7 @@ int dpu_rank_init_device(struct device *dev, struct dpu_region *region,
 
     atomic_set(&rank->nr_ltb_sections, 0);
 	list_add_tail(&rank->list, &(ame_context_list[rank->nid]->rank_list));
-    rank->is_pinned = false;
+    rank->is_reserved = false;
     atomic_inc(&ame_context_list[rank->nid]->nr_free_ranks);
 
 	return 0;

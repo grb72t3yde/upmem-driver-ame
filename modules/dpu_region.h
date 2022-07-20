@@ -73,7 +73,7 @@ struct dpu_region {
 		uint8_t channel_id;
         int nid;
         atomic_t nr_ltb_sections;
-        bool is_pinned;
+        bool is_reserved;
 		uint8_t slot_index;
 
 		uint8_t debug_mode;
