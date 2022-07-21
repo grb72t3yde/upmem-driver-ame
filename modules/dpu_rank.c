@@ -488,13 +488,21 @@ static int dpu_rank_open(struct inode *inode, struct file *filp)
 	struct dpu_rank_t *rank =
 		container_of(inode->i_cdev, struct dpu_rank_t, cdev);
 
+    ame_lock(rank->nid);
+    if (!rank->is_reserved) {
+        ame_unlock(rank->nid);
+        return -EINVAL;
+    }
 	dev_dbg(&rank->dev, "opened rank_id %u\n", rank->id);
 
 	filp->private_data = rank;
 
-	if (dpu_rank_get(rank) != DPU_OK)
+    if (dpu_rank_get(rank) != DPU_OK) {
+        ame_unlock(rank->nid);
 		return -EINVAL;
+    }
 
+    ame_unlock(rank->nid);
 	return 0;
 }
 
@@ -505,9 +513,14 @@ static int dpu_rank_release(struct inode *inode, struct file *filp)
 	if (!rank)
 		return 0;
 
+    ame_lock(rank->nid);
+
 	dev_dbg(&rank->dev, "closed rank_id %u\n", rank->id);
 
 	dpu_rank_put(rank);
+
+    rank->is_reserved = false;
+    ame_unlock(rank->nid);
 
 	return 0;
 }
