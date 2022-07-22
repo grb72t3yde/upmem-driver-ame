@@ -85,7 +85,7 @@ do_reservation:
     /* reserve nr_req_ranks ranks */
     for_each_online_node(node)
         list_for_each_entry (rank_iterator, &ame_context_list[node]->rank_list, list) {
-            if (rank_iterator->is_reserved) {
+            if (!rank_iterator->is_reserved) {
                 /* the rank is reserved for allocation */
                 rank_iterator->is_reserved = true;
                 atomic_dec(&ame_context_list[rank_iterator->nid]->nr_free_ranks);
