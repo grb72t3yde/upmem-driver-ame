@@ -191,6 +191,11 @@ void ame_fs_unlock(void)
     mutex_unlock(&ame_fs.mutex);
 }
 
+static void dpu_ame_dev_release(struct device *dev)
+{
+
+}
+
 int dpu_ame_create_device(void)
 {
     int ret;
@@ -205,6 +210,7 @@ int dpu_ame_create_device(void)
     device_initialize(&ame_fs.dev);
 
     ame_fs.dev.class = dpu_ame_class;
+    ame_fs.dev.release = dpu_ame_dev_release;
 
     dev_set_drvdata(&ame_fs.dev, &ame_fs);
     dev_set_name(&ame_fs.dev, DPU_AME_NAME);
