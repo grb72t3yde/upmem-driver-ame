@@ -620,6 +620,7 @@ mem_error:
 
 static void __exit dpu_region_exit(void)
 {
+    int node;
 	pr_debug("dpu_region: unloading driver\n");
 
 	pci_unregister_driver(&dpu_region_fpga_aws_driver);
@@ -629,9 +630,12 @@ static void __exit dpu_region_exit(void)
 	dpu_rank_dmi_exit();
 	class_destroy(dpu_dax_class);
 	class_destroy(dpu_rank_class);
+	ida_destroy(&dpu_region_ida);
+
     dpu_ame_release_device();
 	class_destroy(dpu_ame_class);
-	ida_destroy(&dpu_region_ida);
+    for_each_online_node(node)
+        destroy_ame_context(node);
 }
 
 module_init(dpu_region_init);
