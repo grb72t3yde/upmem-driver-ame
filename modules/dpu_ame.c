@@ -350,7 +350,7 @@ uint32_t dpu_ame_rank_free(struct dpu_rank_t **rank, int nid)
 
     if (atomic_dec_return(&ame_context_list[nid]->nr_ltb_ranks) == 0)
         ame_context_list[nid]->ltb_index = NULL;
-    else
+    else if (ame_context_list[nid]->ltb_index == target_rank)
         ame_context_list[nid]->ltb_index = list_entry(target_rank->list.prev, typeof(*target_rank), list);
 
     list_del(&target_rank->list);
