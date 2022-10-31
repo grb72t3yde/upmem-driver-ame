@@ -9,21 +9,24 @@
 #include <dpu_region.h>
 #include <dpu_types.h>
 #include <dpu_utils.h>
+#include <dpu_ame.h>
 
-LIST_HEAD(rank_list);
+extern ame_context_t *ame_context_list[MAX_NUMNODES];
 
 uint32_t dpu_rank_alloc(struct dpu_rank_t **rank)
 {
 	struct dpu_rank_t *rank_iterator;
+    int node;
 
 	*rank = NULL;
 
-	list_for_each_entry (rank_iterator, &rank_list, list) {
-		if (dpu_rank_get(rank_iterator) == DPU_OK) {
-			*rank = rank_iterator;
-			return DPU_OK;
-		}
-	}
+    for_each_online_node(node)
+        list_for_each_entry (rank_iterator, &(ame_context_list[node]->rank_list), list) {
+            if (dpu_rank_get(rank_iterator) == DPU_OK) {
+                *rank = rank_iterator;
+                return DPU_OK;
+            }
+        }
 
 	pr_warn("Failed to allocate rank, no available rank.\n");
 
@@ -47,11 +50,13 @@ uint32_t dpu_get_number_of_available_ranks(void)
 {
 	struct dpu_rank_t *rank_iterator;
 	uint32_t nr_available = 0;
+    int node;
 
-	list_for_each_entry (rank_iterator, &rank_list, list) {
-		if (rank_iterator->owner.is_owned == 0)
-			nr_available++;
-	}
+    for_each_online_node(node)
+        list_for_each_entry (rank_iterator, &ame_context_list[node]->rank_list, list) {
+            if (rank_iterator->owner.is_owned == 0)
+                nr_available++;
+        }
 
 	return nr_available;
 }

@@ -411,6 +411,7 @@ int dpu_dax_init_device(struct platform_device *pdev, struct dpu_region *region)
 	region->dev_dax.parent = &pdev->dev;
 	dev_set_drvdata(&region->dev_dax, region);
 	region->rank.id = ida_simple_get(&dpu_region_ida, 0, 0, GFP_KERNEL);
+    region->rank.nid = node;
 	dev_set_name(&region->dev_dax, "dax%d.%d", region->rank.id,
 		     region->rank.id);
 

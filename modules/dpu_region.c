@@ -30,10 +30,13 @@
 #include <dpu_config.h>
 #include <dpu_pci_ids.h>
 #include <dpu_utils.h>
+#include <dpu_ame.h>
 
 static unsigned int default_backend = 0;
 
 DEFINE_IDA(dpu_region_ida);
+extern struct class *dpu_ame_class;
+extern bool ame_initialized;
 
 void dpu_region_lock(struct dpu_region *region)
 {
@@ -530,6 +533,7 @@ static struct pci_driver dpu_region_fpga_aws_driver = {
 static int __init dpu_region_init(void)
 {
 	int ret;
+    int node;
 
 	dpu_rank_class = class_create(THIS_MODULE, DPU_RANK_NAME);
 	if (IS_ERR(dpu_rank_class)) {
@@ -546,8 +550,27 @@ static int __init dpu_region_init(void)
 	}
 	dpu_dax_class->dev_groups = dpu_dax_region_attrs_groups;
 
+    ame_initialized = true;
+    dpu_ame_class = class_create(THIS_MODULE, DPU_AME_NAME);
+    if (IS_ERR(dpu_ame_class))
+        ame_initialized = false;
+    if (ame_initialized)
+        dpu_ame_class->dev_uevent = dpu_ame_dev_uevent;
+
 	pr_debug("dpu: get rank information from DMI\n");
 	dpu_rank_dmi_init();
+
+    /* Init AME context for each node */
+    if (ame_initialized)
+        for_each_online_node(node) {
+            if (init_ame_context(node) == -ENOMEM) {
+                for_each_online_node(node)
+                    destroy_ame_context(node);
+                ame_initialized = false;
+                pr_debug("ame: AME initialization failed\n");
+                break;
+            }
+        }
 
 	pr_debug("dpu: initializing memory driver\n");
 	ret = platform_driver_register(&dpu_region_mem_driver);
@@ -571,6 +594,15 @@ static int __init dpu_region_init(void)
 	if (ret)
 		goto aws_error;
 
+    /* Activate AME service */
+    if (ame_initialized)
+        if (dpu_ame_create_device())
+            ame_initialized = false;
+
+    if (ame_initialized) {
+        ame_init();
+    }
+
 	return 0;
 
 aws_error:
@@ -582,11 +614,13 @@ mem_error:
 	dpu_rank_dmi_exit();
 	class_destroy(dpu_dax_class);
 	class_destroy(dpu_rank_class);
+	class_destroy(dpu_ame_class);
 	return ret;
 }
 
 static void __exit dpu_region_exit(void)
 {
+    int node;
 	pr_debug("dpu_region: unloading driver\n");
 
 	pci_unregister_driver(&dpu_region_fpga_aws_driver);
@@ -597,6 +631,11 @@ static void __exit dpu_region_exit(void)
 	class_destroy(dpu_dax_class);
 	class_destroy(dpu_rank_class);
 	ida_destroy(&dpu_region_ida);
+
+    dpu_ame_release_device();
+	class_destroy(dpu_ame_class);
+    for_each_online_node(node)
+        destroy_ame_context(node);
 }
 
 module_init(dpu_region_init);

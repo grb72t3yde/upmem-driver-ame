@@ -23,8 +23,9 @@
 #include <dpu_rank_mcu.h>
 #include <dpu_management.h>
 #include <ufi/ufi.h>
+#include <dpu_ame.h>
 
-extern struct list_head rank_list;
+extern ame_context_t *ame_context_list[MAX_NUMNODES];
 
 struct class *dpu_rank_class;
 
@@ -455,6 +456,7 @@ void dpu_rank_put(struct dpu_rank_t *rank)
 {
 	struct dpu_region_address_translation *tr =
 		&rank->region->addr_translate;
+    pg_data_t *pgdat = NODE_DATA(rank->nid);
 
 	dpu_region_lock(rank->region);
 
@@ -474,6 +476,10 @@ void dpu_rank_put(struct dpu_rank_t *rank)
 		rank->region->mode = DPU_REGION_MODE_UNDEFINED;
 	}
 
+    if (atomic_inc_return(&ame_context_list[rank->nid]->nr_free_ranks) == 1) {
+        atomic_set(&pgdat->ame_disabled, 0);
+    }
+
 	dpu_region_unlock(rank->region);
 }
 
@@ -482,13 +488,21 @@ static int dpu_rank_open(struct inode *inode, struct file *filp)
 	struct dpu_rank_t *rank =
 		container_of(inode->i_cdev, struct dpu_rank_t, cdev);
 
+    ame_lock(rank->nid);
+    if (!rank->is_reserved) {
+        ame_unlock(rank->nid);
+        return -EINVAL;
+    }
 	dev_dbg(&rank->dev, "opened rank_id %u\n", rank->id);
 
 	filp->private_data = rank;
 
-	if (dpu_rank_get(rank) != DPU_OK)
+    if (dpu_rank_get(rank) != DPU_OK) {
+        ame_unlock(rank->nid);
 		return -EINVAL;
+    }
 
+    ame_unlock(rank->nid);
 	return 0;
 }
 
@@ -499,9 +513,14 @@ static int dpu_rank_release(struct inode *inode, struct file *filp)
 	if (!rank)
 		return 0;
 
+    ame_lock(rank->nid);
+
 	dev_dbg(&rank->dev, "closed rank_id %u\n", rank->id);
 
 	dpu_rank_put(rank);
+
+    rank->is_reserved = false;
+    ame_unlock(rank->nid);
 
 	return 0;
 }
@@ -826,7 +845,10 @@ int dpu_rank_init_device(struct device *dev, struct dpu_region *region,
 	if (ret)
 		goto free_dpus;
 
-	list_add_tail(&rank->list, &rank_list);
+    atomic_set(&rank->nr_ltb_sections, 0);
+	list_add_tail(&rank->list, &(ame_context_list[rank->nid]->rank_list));
+    rank->is_reserved = false;
+    atomic_inc(&ame_context_list[rank->nid]->nr_free_ranks);
 
 	return 0;
 
@@ -860,18 +882,20 @@ bool dpu_is_dimm_used(struct dpu_rank_t *rank)
 	struct dpu_rank_t *rank_iterator;
 	const char *sn = rank->serial_number;
 	int nr_ranks_used = 0;
+    int node;
 
 	/* We cannot relate the rank to a DIMM */
 	if (!strcmp(sn, "")) {
 		return true;
 	}
 
-	list_for_each_entry (rank_iterator, &rank_list, list) {
-		if ((!strcmp(rank_iterator->serial_number, sn)) &&
-		    (rank_iterator->owner.is_owned)) {
-			nr_ranks_used++;
-		}
-	}
+    for_each_online_node(node)
+        list_for_each_entry (rank_iterator, &(ame_context_list[node]->rank_list), list) {
+            if ((!strcmp(rank_iterator->serial_number, sn)) &&
+                (rank_iterator->owner.is_owned)) {
+                nr_ranks_used++;
+            }
+        }
 
 	return (nr_ranks_used == 0) ? false : true;
 }
