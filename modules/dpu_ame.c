@@ -69,12 +69,11 @@ static int reclaim_one_rank(struct dpu_rank_t *rank)
 static int reserve_ranks_for_allocation(int nr_req_ranks, int nr_reclamation_ranks)
 {
     int node;
-    struct dpu_rank_t *rank_iterator;
+    struct dpu_rank_t *rank_iterator, *tmp;
 
-    /* reclaim nr_reclamation_ranks ranks */
     if (nr_reclamation_ranks > 0)
         for_each_online_node(node)
-            list_for_each_entry (rank_iterator, &ame_context_list[node]->ltb_rank_list, list) {
+            list_for_each_entry_safe (rank_iterator, tmp, &ame_context_list[node]->ltb_rank_list, list) {
                 reclaim_one_rank(rank_iterator);
 
                 if (--nr_reclamation_ranks == 0)
