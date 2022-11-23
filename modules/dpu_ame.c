@@ -96,6 +96,19 @@ end:
     return 0;
 }
 
+static int dpu_ame_trigger_async_reclamation(void)
+{
+    int node;
+    pr_info("Trigger async reclamation\n");
+
+    for_each_online_node(node) {
+        atomic_set(&NODE_DATA(node)->ame_is_direct_reclaim_activated, 1);
+        wakeup_ame_reclaimer(node);
+    }
+
+    return 0;
+}
+
 static int dpu_ame_check_need_reclamation(unsigned long ptr)
 {
     struct dpu_ame_allocation_context allocation_context;
@@ -122,6 +135,7 @@ static int dpu_ame_check_need_reclamation(unsigned long ptr)
     for_each_online_node(node)
         nr_ltb_ranks += atomic_read(&ame_context_list[node]->nr_ltb_ranks);
 
+    pr_info("Start doing direct reclamation\n");
     if (allocation_context.nr_req_ranks <= nr_free_ranks + nr_ltb_ranks) {
         /* we can get enough ranks after relcaiming (nr_req_ranks - nr_free_ranks) ranks */
         nr_reclamation_ranks = allocation_context.nr_req_ranks - nr_free_ranks;
@@ -152,6 +166,9 @@ static long dpu_ame_ioctl(struct file *filp, unsigned int cmd,
     switch (cmd) {
     case DPU_AME_IOCTL_CHECK_NEED_RECLAMATION:
         ret = dpu_ame_check_need_reclamation(arg);
+        break;
+    case DPU_AME_IOCTL_TRIGGER_ASYNC_RECLAMATION:
+        ret = dpu_ame_trigger_async_reclamation();
         break;
     default:
         break;
@@ -257,6 +274,9 @@ int init_ame_context(int nid)
     ame_context_list[nid]->nid = nid;
     atomic_set(&ame_context_list[nid]->nr_free_ranks, 0);
     atomic_set(&ame_context_list[nid]->nr_ltb_ranks, 0);
+
+    atomic_set(&NODE_DATA(nid)->ame_is_direct_reclaim_activated, 0);
+
     ame_unlock(nid);
 
     return 0;
