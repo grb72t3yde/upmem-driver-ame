@@ -105,7 +105,52 @@ end:
     return 0;
 }
 
-static int dpu_ame_check_need_reclamation(unsigned long ptr)
+static int dpu_ame_alloc_ranks_direct(unsigned long ptr)
+{
+    struct dpu_ame_allocation_context allocation_context;
+    int node;
+    int nr_free_ranks = 0;
+    int nr_ltb_ranks = 0;
+    int nr_reclamation_ranks = 0;
+
+    if (copy_from_user(&allocation_context, (void *)ptr, sizeof(allocation_context)))
+        return -EFAULT;
+
+    /* we must lock ame on each node */
+    for_each_online_node(node)
+        ame_lock(node);
+
+    for_each_online_node(node)
+        nr_free_ranks += atomic_read(&ame_context_list[node]->nr_free_ranks);
+
+    if (allocation_context.nr_req_ranks <= nr_free_ranks) {
+        nr_reclamation_ranks = 0;
+        goto reserve_ranks;
+    }
+
+    for_each_online_node(node)
+        nr_ltb_ranks += atomic_read(&ame_context_list[node]->nr_ltb_ranks);
+
+    if (allocation_context.nr_req_ranks <= nr_free_ranks + nr_ltb_ranks) {
+        /* we can get enough ranks after relcaiming (nr_req_ranks - nr_free_ranks) ranks */
+        nr_reclamation_ranks = allocation_context.nr_req_ranks - nr_free_ranks;
+        direct_reclaim_ranks(nr_reclamation_ranks);
+        goto reserve_ranks;
+    } else {
+        for_each_online_node(node)
+            ame_unlock(node);
+        return -EBUSY;
+    }
+
+reserve_ranks:
+    reserve_ranks_for_allocation(allocation_context.nr_req_ranks);
+
+    for_each_online_node(node)
+        ame_unlock(node);
+    return 0;
+}
+
+static int dpu_ame_alloc_ranks_async(unsigned long ptr)
 {
     struct dpu_ame_allocation_context allocation_context;
     int node;
@@ -173,8 +218,11 @@ static long dpu_ame_ioctl(struct file *filp, unsigned int cmd,
         return 0;
 
     switch (cmd) {
-    case DPU_AME_IOCTL_CHECK_NEED_RECLAMATION:
-        ret = dpu_ame_check_need_reclamation(arg);
+    case DPU_AME_IOCTL_ALLOC_RANKS_DIRECT:
+        ret = dpu_ame_alloc_ranks_direct(arg);
+        break;
+    case DPU_AME_IOCTL_ALLOC_RANKS_ASYNC:
+        ret = dpu_ame_alloc_ranks_async(arg);
         break;
     default:
         break;
