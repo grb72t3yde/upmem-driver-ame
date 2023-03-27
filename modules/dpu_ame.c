@@ -61,6 +61,7 @@ static int reclaim_one_rank(struct dpu_rank_t *rank)
         reclaim_mram_pages(pfn, PAGES_PER_SECTION, mem->group, &rank->region->dpu_dax_dev.pgmap);
     }
 
+    atomic_set(&rank->nr_ltb_sections, 0);
     dpu_ame_rank_free(&rank, rank->nid);
 
     return 0;
