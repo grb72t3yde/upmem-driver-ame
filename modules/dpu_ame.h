@@ -9,6 +9,7 @@
 #define SECTIONS_PER_DPU_RANK (PAGES_PER_DPU_RANK / PAGES_PER_SECTION)
 
 #define DPU_AME_NAME "dpu_ame"
+#define CONFIG_NR_AME_RESERVED_RANKS 0
 
 typedef struct ame_context {
     int nid;

@@ -447,7 +447,7 @@ int request_mram_expansion(int nid)
             goto request_one_section;
 
     /* try to allocate a new rank for AME */
-    if (!atomic_read(&ame_context_list[nid]->nr_free_ranks)) {
+    if (atomic_read(&ame_context_list[nid]->nr_free_ranks) <= CONFIG_NR_AME_RESERVED_RANKS) {
         ame_unlock(nid);
         return -EBUSY;
     }
