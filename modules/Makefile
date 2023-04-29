@@ -17,6 +17,7 @@ dpu-objs += dpu_management.o
 dpu-objs += dpu_memory.o
 dpu-objs += dpu_rank_mcu.o
 dpu-objs += dpu_power_management.o
+dpu-objs += dpu_ame.o
 format-source  = modules/dpu_region.c modules/dpu_region_address_translation.c
 format-source += modules/dpu_rank.c modules/dpu_rank_sysfs.c
 format-source += modules/dpu_dax.c
@@ -30,6 +31,7 @@ format-source += modules/dpu_management.c
 format-source += modules/dpu_memory.c
 format-source += modules/dpu_rank_mcu.c
 format-source += modules/dpu_power_management.c
+format-source += modules/dpu_ame.c
 format-source += modules/dpu_rank_mcu.h
 format-source += modules/dpu_region.h modules/dpu_region_address_translation.h
 format-source += modules/dpu_rank.h modules/dpu_rank_ioctl.h
@@ -48,6 +50,8 @@ format-source += modules/uapi/dpu.h
 format-source += modules/uapi/dpu_runner.h
 format-source += modules/uapi/dpu_management.h
 format-source += modules/uapi/dpu_memory.h
+format-source += modules/dpu_ame.h
+format-source += modules/dpu_ame_ioctl.h
 
 # Mappings
 dpu-objs 	+= ../mappings/fpga_kc705/dpu_fpga_kc705_translation.o
