@@ -28,7 +28,7 @@ static int dpu_ame_open(struct inode *inode, struct file *filp)
     ame_fs_lock();
     if (fs->is_opened) {
         ame_fs_unlock();
-        return -EINVAL;
+        return 0;
     }
 
     fs->is_opened = true;
@@ -86,6 +86,23 @@ end:
     return 0;
 }
 
+static int direct_reclaim_ranks_node(int nr_ranks, int node)
+{
+    struct dpu_rank_t *rank_iterator, *tmp;
+    int nr_req_target = nr_ranks;
+
+    /* reclaim nr_req_ranks ranks */
+    list_for_each_entry_safe (rank_iterator, tmp, &ame_context_list[node]->ltb_rank_list, list) {
+        reclaim_one_rank(rank_iterator);
+
+        if (--nr_req_target == 0)
+            goto end;
+    }
+
+end:
+    return 0;
+}
+
 static int reserve_ranks_for_allocation(int nr_ranks)
 {
     struct dpu_rank_t *rank_iterator, *tmp;
@@ -113,6 +130,7 @@ static int dpu_ame_alloc_ranks_direct(unsigned long ptr)
     int nr_free_ranks = 0;
     int nr_ltb_ranks = 0;
     int nr_reclamation_ranks = 0;
+    int nr_reserved_ranks = 0;
 
     if (copy_from_user(&allocation_context, (void *)ptr, sizeof(allocation_context)))
         return -EFAULT;
@@ -124,19 +142,22 @@ static int dpu_ame_alloc_ranks_direct(unsigned long ptr)
     for_each_online_node(node)
         nr_free_ranks += atomic_read(&ame_context_list[node]->nr_free_ranks);
 
-    if (allocation_context.nr_req_ranks <= nr_free_ranks) {
-        nr_reclamation_ranks = 0;
-        goto reserve_ranks;
+    for_each_online_node(node) {
+        nr_ltb_ranks += atomic_read(&ame_context_list[node]->nr_ltb_ranks);
+        nr_reserved_ranks += atomic_read(&ame_context_list[node]->nr_reserved_ranks);
     }
 
-    for_each_online_node(node)
-        nr_ltb_ranks += atomic_read(&ame_context_list[node]->nr_ltb_ranks);
+    pr_info("membo: threshold is: %d ranks\n", nr_reserved_ranks);
+    if (allocation_context.nr_req_ranks <= nr_free_ranks) {
+        pr_info("membo: allocation without direct reclamation\n");
+        goto reserve_ranks;
+    }
 
     if (allocation_context.nr_req_ranks <= nr_free_ranks + nr_ltb_ranks) {
         /* we can get enough ranks after relcaiming (nr_req_ranks - nr_free_ranks) ranks */
         nr_reclamation_ranks = allocation_context.nr_req_ranks - nr_free_ranks;
+        pr_info("membo: trigger direct reclamation: %d ranks\n", nr_reclamation_ranks);
         direct_reclaim_ranks(nr_reclamation_ranks);
-        goto reserve_ranks;
     } else {
         for_each_online_node(node)
             ame_unlock(node);
@@ -181,11 +202,9 @@ static int dpu_ame_alloc_ranks_async(unsigned long ptr)
         if (nr_free_ranks == 0) {
             direct_reclaim_ranks(1);
             allocation_context.nr_alloc_ranks = 1;
-            pr_info("Reclaim 1 rank\n");
         } else {
             /* Give the free ranks to the user immediately */
             allocation_context.nr_alloc_ranks = nr_free_ranks;
-            pr_info("Allocate %d ranks\n", allocation_context.nr_alloc_ranks);
         }
         goto reserve_ranks;
     } else {
@@ -209,6 +228,65 @@ reserve_ranks:
     return 0;
 }
 
+static int dpu_ame_get_usage(unsigned long ptr)
+{
+    struct dpu_ame_usage_context usage_context;
+    int node;
+    int nr_used_ranks = 0;
+
+    for_each_online_node(node)
+        ame_lock(node);
+
+    for_each_online_node(node)
+        nr_used_ranks += atomic_read(&ame_context_list[node]->nr_used_ranks);
+
+    usage_context.nr_used_ranks = nr_used_ranks;
+
+    if (copy_to_user((void *)ptr, &usage_context, sizeof(usage_context))) {
+        for_each_online_node(node)
+            ame_unlock(node);
+        return -EFAULT;
+    }
+
+    for_each_online_node(node)
+        ame_unlock(node);
+
+    return 0;
+}
+
+static int dpu_ame_set_threshold(unsigned long ptr)
+{
+    struct dpu_ame_dynamic_reservation_context reservation_context;
+    int node;
+
+    if (copy_from_user(&reservation_context, (void *)ptr, sizeof(reservation_context)))
+        return -EFAULT;
+
+    for_each_online_node(node)
+        ame_lock(node);
+
+    atomic_set(&ame_context_list[0]->nr_reserved_ranks, reservation_context.node0_threshold);
+    atomic_set(&ame_context_list[1]->nr_reserved_ranks, reservation_context.node1_threshold);
+
+    for_each_online_node(node) {
+        pg_data_t *pgdat = NODE_DATA(node);
+        int nr_total_ranks = atomic_read(&ame_context_list[node]->nr_total_ranks);
+        int nr_reserved_ranks = atomic_read(&ame_context_list[node]->nr_reserved_ranks);
+        int nr_ltb_ranks = atomic_read(&ame_context_list[node]->nr_ltb_ranks);
+
+        if (nr_ltb_ranks > nr_total_ranks - nr_reserved_ranks) {
+            direct_reclaim_ranks_node(nr_ltb_ranks - (nr_total_ranks - nr_reserved_ranks), node);
+        }
+
+        atomic_set(&pgdat->ame_disabled, 0);
+    }
+
+    for_each_online_node(node)
+        ame_unlock(node);
+
+    return 0;
+}
+
 static long dpu_ame_ioctl(struct file *filp, unsigned int cmd,
         unsigned long arg)
 {
@@ -224,6 +302,12 @@ static long dpu_ame_ioctl(struct file *filp, unsigned int cmd,
         break;
     case DPU_AME_IOCTL_ALLOC_RANKS_ASYNC:
         ret = dpu_ame_alloc_ranks_async(arg);
+        break;
+    case DPU_AME_IOCTL_SET_THRESHOLD:
+        ret = dpu_ame_set_threshold(arg);
+        break;
+    case DPU_AME_IOCTL_GET_USAGE:
+        ret = dpu_ame_get_usage(arg);
         break;
     default:
         break;
@@ -327,9 +411,11 @@ int init_ame_context(int nid)
 
     ame_context_list[nid]->ltb_index = NULL;
     ame_context_list[nid]->nid = nid;
+
     atomic_set(&ame_context_list[nid]->nr_free_ranks, 0);
     atomic_set(&ame_context_list[nid]->nr_ltb_ranks, 0);
-
+    atomic_set(&ame_context_list[nid]->nr_used_ranks, 0);
+    atomic_set(&ame_context_list[nid]->nr_reserved_ranks, 0);
     atomic_set(&NODE_DATA(nid)->ame_is_direct_reclaim_activated, 0);
 
     ame_unlock(nid);
@@ -447,7 +533,8 @@ int request_mram_expansion(int nid)
             goto request_one_section;
 
     /* try to allocate a new rank for AME */
-    if (atomic_read(&ame_context_list[nid]->nr_free_ranks) <= CONFIG_NR_AME_RESERVED_RANKS) {
+    if (atomic_read(&ame_context_list[nid]->nr_ltb_ranks) >= atomic_read(&ame_context_list[nid]->nr_total_ranks) - atomic_read(&ame_context_list[nid]->nr_reserved_ranks)) {
+        pr_info("Fail to borrow a rank\n");
         ame_unlock(nid);
         return -EBUSY;
     }

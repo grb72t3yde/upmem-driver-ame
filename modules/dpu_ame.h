@@ -9,7 +9,6 @@
 #define SECTIONS_PER_DPU_RANK (PAGES_PER_DPU_RANK / PAGES_PER_SECTION)
 
 #define DPU_AME_NAME "dpu_ame"
-#define CONFIG_NR_AME_RESERVED_RANKS 0
 
 typedef struct ame_context {
     int nid;
@@ -18,7 +17,10 @@ typedef struct ame_context {
     struct list_head ltb_rank_list;
     struct dpu_rank_t *ltb_index;
     atomic_t nr_free_ranks;
+    atomic_t nr_used_ranks;
     atomic_t nr_ltb_ranks;
+    atomic_t nr_reserved_ranks;
+    atomic_t nr_total_ranks;
 } ame_context_t;
 
 struct dpu_ame_fs {
@@ -31,6 +33,15 @@ struct dpu_ame_fs {
 struct dpu_ame_allocation_context {
     int nr_req_ranks;
     int nr_alloc_ranks;
+};
+
+struct dpu_ame_dynamic_reservation_context {
+    int node0_threshold;
+    int node1_threshold;
+};
+
+struct dpu_ame_usage_context {
+    int nr_used_ranks;
 };
 
 void ame_lock(int nid);

@@ -489,6 +489,7 @@ static int dpu_rank_open(struct inode *inode, struct file *filp)
 		container_of(inode->i_cdev, struct dpu_rank_t, cdev);
 
     ame_lock(rank->nid);
+
     if (!rank->is_reserved) {
         ame_unlock(rank->nid);
         return -EINVAL;
@@ -501,6 +502,8 @@ static int dpu_rank_open(struct inode *inode, struct file *filp)
         ame_unlock(rank->nid);
 		return -EINVAL;
     }
+
+    atomic_inc(&ame_context_list[rank->nid]->nr_used_ranks);
 
     ame_unlock(rank->nid);
 	return 0;
@@ -520,6 +523,9 @@ static int dpu_rank_release(struct inode *inode, struct file *filp)
 	dpu_rank_put(rank);
 
     rank->is_reserved = false;
+
+    atomic_dec(&ame_context_list[rank->nid]->nr_used_ranks);
+
     ame_unlock(rank->nid);
 
 	return 0;
@@ -849,6 +855,7 @@ int dpu_rank_init_device(struct device *dev, struct dpu_region *region,
 	list_add_tail(&rank->list, &(ame_context_list[rank->nid]->rank_list));
     rank->is_reserved = false;
     atomic_inc(&ame_context_list[rank->nid]->nr_free_ranks);
+    atomic_inc(&ame_context_list[rank->nid]->nr_total_ranks);
 
 	return 0;
 
