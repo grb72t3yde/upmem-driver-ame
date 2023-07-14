@@ -9,9 +9,9 @@
 #include <dpu_region.h>
 #include <dpu_types.h>
 #include <dpu_utils.h>
-#include <dpu_ame.h>
+#include <dpu_membo.h>
 
-extern ame_context_t *ame_context_list[MAX_NUMNODES];
+extern membo_context_t *membo_context_list[MAX_NUMNODES];
 
 uint32_t dpu_rank_alloc(struct dpu_rank_t **rank)
 {
@@ -21,7 +21,7 @@ uint32_t dpu_rank_alloc(struct dpu_rank_t **rank)
 	*rank = NULL;
 
     for_each_online_node(node)
-        list_for_each_entry (rank_iterator, &(ame_context_list[node]->rank_list), list) {
+        list_for_each_entry (rank_iterator, &(membo_context_list[node]->rank_list), list) {
             if (dpu_rank_get(rank_iterator) == DPU_OK) {
                 *rank = rank_iterator;
                 return DPU_OK;
@@ -53,7 +53,7 @@ uint32_t dpu_get_number_of_available_ranks(void)
     int node;
 
     for_each_online_node(node)
-        list_for_each_entry (rank_iterator, &ame_context_list[node]->rank_list, list) {
+        list_for_each_entry (rank_iterator, &membo_context_list[node]->rank_list, list) {
             if (rank_iterator->owner.is_owned == 0)
                 nr_available++;
         }
