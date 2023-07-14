@@ -30,13 +30,13 @@
 #include <dpu_config.h>
 #include <dpu_pci_ids.h>
 #include <dpu_utils.h>
-#include <dpu_ame.h>
+#include <dpu_membo.h>
 
 static unsigned int default_backend = 0;
 
 DEFINE_IDA(dpu_region_ida);
-extern struct class *dpu_ame_class;
-extern bool ame_initialized;
+extern struct class *dpu_membo_class;
+extern bool membo_initialized;
 
 void dpu_region_lock(struct dpu_region *region)
 {
@@ -550,24 +550,24 @@ static int __init dpu_region_init(void)
 	}
 	dpu_dax_class->dev_groups = dpu_dax_region_attrs_groups;
 
-    ame_initialized = true;
-    dpu_ame_class = class_create(THIS_MODULE, DPU_AME_NAME);
-    if (IS_ERR(dpu_ame_class))
-        ame_initialized = false;
-    if (ame_initialized)
-        dpu_ame_class->dev_uevent = dpu_ame_dev_uevent;
+    membo_initialized = true;
+    dpu_membo_class = class_create(THIS_MODULE, DPU_MEMBO_NAME);
+    if (IS_ERR(dpu_membo_class))
+        membo_initialized = false;
+    if (membo_initialized)
+        dpu_membo_class->dev_uevent = dpu_membo_dev_uevent;
 
 	pr_debug("dpu: get rank information from DMI\n");
 	dpu_rank_dmi_init();
 
-    /* Init AME context for each node */
-    if (ame_initialized)
+    /* Init MemBo context for each node */
+    if (membo_initialized)
         for_each_online_node(node) {
-            if (init_ame_context(node) == -ENOMEM) {
+            if (init_membo_context(node) == -ENOMEM) {
                 for_each_online_node(node)
-                    destroy_ame_context(node);
-                ame_initialized = false;
-                pr_debug("ame: AME initialization failed\n");
+                    destroy_membo_context(node);
+                membo_initialized = false;
+                pr_debug("membo: MemBo initialization failed\n");
                 break;
             }
         }
@@ -594,13 +594,13 @@ static int __init dpu_region_init(void)
 	if (ret)
 		goto aws_error;
 
-    /* Activate AME service */
-    if (ame_initialized)
-        if (dpu_ame_create_device())
-            ame_initialized = false;
+    /* Activate MemBo service */
+    if (membo_initialized)
+        if (dpu_membo_create_device())
+            membo_initialized = false;
 
-    if (ame_initialized) {
-        ame_init();
+    if (membo_initialized) {
+        membo_init();
     }
 
 	return 0;
@@ -614,7 +614,7 @@ mem_error:
 	dpu_rank_dmi_exit();
 	class_destroy(dpu_dax_class);
 	class_destroy(dpu_rank_class);
-	class_destroy(dpu_ame_class);
+	class_destroy(dpu_membo_class);
 	return ret;
 }
 
@@ -632,10 +632,10 @@ static void __exit dpu_region_exit(void)
 	class_destroy(dpu_rank_class);
 	ida_destroy(&dpu_region_ida);
 
-    dpu_ame_release_device();
-	class_destroy(dpu_ame_class);
+    dpu_membo_release_device();
+	class_destroy(dpu_membo_class);
     for_each_online_node(node)
-        destroy_ame_context(node);
+        destroy_membo_context(node);
 }
 
 module_init(dpu_region_init);
