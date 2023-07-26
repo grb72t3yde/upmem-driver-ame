@@ -51,6 +51,7 @@ static int dpu_membo_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
+/* The caller must hold MemBo lock */
 static int reclaim_one_rank(struct dpu_rank_t *rank)
 {
     struct page *page = virt_to_page(rank->region->base);
@@ -67,6 +68,7 @@ static int reclaim_one_rank(struct dpu_rank_t *rank)
     return 0;
 }
 
+/* The caller must hold MemBo lock */
 static int direct_reclaim_ranks(int nr_ranks)
 {
     struct dpu_rank_t *rank_iterator, *tmp;
@@ -86,22 +88,7 @@ end:
     return 0;
 }
 
-static int direct_reclaim_ranks_node(int nr_ranks, int node)
-{
-    struct dpu_rank_t *rank_iterator, *tmp;
-    int nr_req_target = nr_ranks;
 
-    /* reclaim nr_req_ranks ranks */
-    list_for_each_entry_safe (rank_iterator, tmp, &membo_context_list[node]->ltb_rank_list, list) {
-        reclaim_one_rank(rank_iterator);
-
-        if (--nr_req_target == 0)
-            goto end;
-    }
-
-end:
-    return 0;
-}
 
 static int reserve_ranks_for_allocation(int nr_ranks)
 {
@@ -130,7 +117,7 @@ static int dpu_membo_alloc_ranks_direct(unsigned long ptr)
     int nr_free_ranks = 0;
     int nr_ltb_ranks = 0;
     int nr_reclamation_ranks = 0;
-    int nr_reserved_ranks = 0;
+    int nr_total_ranks = 0;
 
     if (copy_from_user(&allocation_context, (void *)ptr, sizeof(allocation_context)))
         return -EFAULT;
@@ -144,19 +131,19 @@ static int dpu_membo_alloc_ranks_direct(unsigned long ptr)
 
     for_each_online_node(node) {
         nr_ltb_ranks += atomic_read(&membo_context_list[node]->nr_ltb_ranks);
-        nr_reserved_ranks += atomic_read(&membo_context_list[node]->nr_reserved_ranks);
+        nr_total_ranks += atomic_read(&membo_context_list[node]->nr_total_ranks);
     }
 
-    pr_info("membo: threshold is: %d ranks\n", nr_reserved_ranks);
+    pr_info("--->MemBo: reservation threshold is: %d ranks\n", nr_total_ranks - nr_ltb_ranks);
     if (allocation_context.nr_req_ranks <= nr_free_ranks) {
-        pr_info("membo: allocation without direct reclamation\n");
+        pr_info("-->membo: allocation without direct reclamation\n");
         goto reserve_ranks;
     }
 
     if (allocation_context.nr_req_ranks <= nr_free_ranks + nr_ltb_ranks) {
         /* we can get enough ranks after relcaiming (nr_req_ranks - nr_free_ranks) ranks */
         nr_reclamation_ranks = allocation_context.nr_req_ranks - nr_free_ranks;
-        pr_info("membo: trigger direct reclamation: %d ranks\n", nr_reclamation_ranks);
+        pr_info("->membo: trigger direct reclamation: %d ranks\n", nr_reclamation_ranks);
         direct_reclaim_ranks(nr_reclamation_ranks);
     } else {
         for_each_online_node(node)
@@ -270,14 +257,6 @@ static int dpu_membo_set_threshold(unsigned long ptr)
 
     for_each_online_node(node) {
         pg_data_t *pgdat = NODE_DATA(node);
-        int nr_total_ranks = atomic_read(&membo_context_list[node]->nr_total_ranks);
-        int nr_reserved_ranks = atomic_read(&membo_context_list[node]->nr_reserved_ranks);
-        int nr_ltb_ranks = atomic_read(&membo_context_list[node]->nr_ltb_ranks);
-
-        if (nr_ltb_ranks > nr_total_ranks - nr_reserved_ranks) {
-            direct_reclaim_ranks_node(nr_ltb_ranks - (nr_total_ranks - nr_reserved_ranks), node);
-        }
-
         atomic_set(&pgdat->membo_disabled, 0);
     }
 
@@ -325,6 +304,7 @@ static struct file_operations dpu_membo_fops = {
 
 extern int (*membo_request_mram_borrowing)(int nid);
 extern int (*membo_request_mram_reclamation)(int nid);
+//extern int (*membo_request_mram_reclamation_reservation)(int nid);
 
 void membo_lock(int nid)
 {
@@ -395,6 +375,7 @@ static void init_membo_api(void)
 {
     membo_request_mram_borrowing = request_mram_borrowing;
     membo_request_mram_reclamation = request_mram_reclamation;
+    //membo_request_mram_reclamation_reservation = request_mram_reclamation_reservation;
 }
 
 int init_membo_context(int nid)
@@ -487,7 +468,7 @@ uint32_t dpu_membo_rank_alloc(struct dpu_rank_t **rank, int nid)
             atomic_dec(&membo_context_list[nid]->nr_free_ranks);
             if (atomic_inc_return(&membo_context_list[nid]->nr_ltb_ranks) == 1)
                 wakeup_membo_reclaimer(nid);
-            atomic_inc(&pgdat->membo_nr_ranks);
+            atomic_inc(&pgdat->membo_nr_ltb_ranks);
 
             /* Update ltb allocation index */
             membo_context_list[nid]->ltb_index = rank_iterator;
@@ -516,7 +497,7 @@ uint32_t dpu_membo_rank_free(struct dpu_rank_t **rank, int nid)
     list_del(&target_rank->list);
     list_add_tail(&target_rank->list, &membo_context_list[nid]->rank_list);
 
-    atomic_dec(&pgdat->membo_nr_ranks);
+    atomic_dec(&pgdat->membo_nr_ltb_ranks);
 
     return DPU_OK;
 }
@@ -534,7 +515,9 @@ int request_mram_borrowing(int nid)
 
     /* try to allocate a new rank for MEMBO */
     if (atomic_read(&membo_context_list[nid]->nr_ltb_ranks) >= atomic_read(&membo_context_list[nid]->nr_total_ranks) - atomic_read(&membo_context_list[nid]->nr_reserved_ranks)) {
-        pr_info("Fail to borrow a rank\n");
+        
+        //pr_info("Node %d :Fail to borrow a rank; total: %d, ltb: %d, reserved:%d\n", nid, atomic_read(&membo_context_list[nid]->nr_total_ranks), atomic_read(&membo_context_list[nid]->nr_ltb_ranks), atomic_read(&membo_context_list[nid]->nr_reserved_ranks));
+
         membo_unlock(nid);
         return -EBUSY;
     }
@@ -559,6 +542,8 @@ int request_mram_reclamation(int nid)
     membo_lock(nid);
     current_ltb_rank = membo_context_list[nid]->ltb_index;
 
+    pr_info("MemBo background: try to reclaim one section!\n");
+
     if (!atomic_read(&membo_context_list[nid]->nr_ltb_ranks)) {
         membo_unlock(nid);
         return -EBUSY;
@@ -574,3 +559,49 @@ int request_mram_reclamation(int nid)
     return 0;
 }
 
+int request_mram_reclamation_reservation(int node)
+{
+    int i = 0;
+    struct dpu_rank_t *rank_iterator, *tmp;
+    pg_data_t *pgdat = NODE_DATA(node);
+    struct dpu_rank_t *current_ltb_rank;
+
+    membo_lock(node);
+
+    //for (i = 0; i < 16; ++i) {
+    int nr_total_ranks = atomic_read(&membo_context_list[node]->nr_total_ranks);
+    int nr_reserved_ranks = atomic_read(&membo_context_list[node]->nr_reserved_ranks);
+    int nr_ltb_ranks = atomic_read(&membo_context_list[node]->nr_ltb_ranks);
+
+    if (nr_ltb_ranks > nr_total_ranks - nr_reserved_ranks) {
+        /*
+        list_for_each_entry_safe (rank_iterator, tmp, &membo_context_list[node]->ltb_rank_list, list) {
+            reclaim_one_rank(rank_iterator);
+            pr_info("MemBo: reservation reclaim 1 rank!\n");
+            break;
+        }
+        */
+
+        current_ltb_rank = membo_context_list[node]->ltb_index;
+
+        if (!atomic_read(&membo_context_list[node]->nr_ltb_ranks)) {
+            membo_unlock(node);
+            return -EBUSY;
+        }
+
+        atomic_dec(&current_ltb_rank->nr_ltb_sections);
+        reclaim_one_section(current_ltb_rank, atomic_read(&current_ltb_rank->nr_ltb_sections));
+
+        if (!atomic_read(&current_ltb_rank->nr_ltb_sections)) {
+            dpu_membo_rank_free(&current_ltb_rank, node); 
+            pr_info("MemBo: reservation reclaim 1 rank!\n");
+        }
+    }
+
+    //}
+    atomic_set(&pgdat->membo_disabled, 0);
+    //pr_info("MemBo: reservation reclaim 16 sections!\n");
+    membo_unlock(node);
+
+    return 0;
+}
