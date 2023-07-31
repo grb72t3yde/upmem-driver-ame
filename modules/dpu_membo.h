@@ -55,6 +55,7 @@ uint32_t dpu_membo_rank_free(struct dpu_rank_t **rank, int nid);
 
 int request_mram_borrowing(int nid);
 int request_mram_reclamation(int nid);
+int request_mram_reclamation_reservation(int nid);
 
 int init_membo_context(int nid);
 void destroy_membo_context(int nid);
